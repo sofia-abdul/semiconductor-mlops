@@ -1,0 +1,11 @@
+data/raw/*.csv
+data/processed/*.csv
+data/outputs/*.csv
+
+models/*.pkl
+
+mlruns/
+
+__pycache__/
+*.pyc
+.env
