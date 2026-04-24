@@ -4,7 +4,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 DATA_PATH = BASE_DIR / "data" / "raw" / "semiconductor.csv"
 
-DB_URL = "mysql+pymysql://student:Pa55W0rd123#@localhost:3306/pipeline_db"
+DB_URL = "mysql+pymysql://student:Pa55W0rd123%23@localhost:3307/pipeline_db"
 TABLE_NAME = "semiconductor_data"
 
 TARGET_COLUMN = "viable"
