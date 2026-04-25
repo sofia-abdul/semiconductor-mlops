@@ -1,0 +1,12 @@
+pandas
+numpy
+sqlalchemy
+pymysql
+scikit-learn
+xgboost
+mlflow
+joblib
+fastapi
+uvicorn
+pytest
+python-dotenv

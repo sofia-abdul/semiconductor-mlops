@@ -8,3 +8,9 @@ if __name__ == "__main__":
 
     print("\nRunning ingestion...")
     ingest_data()
+
+    print("\nRunning preprocessing...")
+    preprocess_data()
+
+    print("\nRunning training...")
+    train_pipeline()

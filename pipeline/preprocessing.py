@@ -37,6 +37,7 @@ def handle_missing_values(df: pd.DataFrame) -> pd.DataFrame:
 
     if "fin_width_nm" in df.columns:
         # Planar transistors do not have fins, so missing values represent absence.
+        
         df["fin_width_nm"] = df["fin_width_nm"].fillna(0)
         print("\nfin_width_nm missing values replaced with 0")
 
