@@ -1,25 +1,32 @@
 import pandas as pd
 
-from pipeline.config import DATA_PATH, DROP_COLUMNS, TABLE_NAME
+from pipeline.config import DATA_PATH, TABLE_NAME, RAW_TARGET_COLUMN, TARGET_COLUMN
 from pipeline.db import get_engine
 
 
 def ingest_data() -> pd.DataFrame:
     """
-    Ingest semiconductor dataset into MariaDB.
+    Ingest SECOM dataset into MariaDB.
 
     Steps:
     1. Load raw CSV
-    2. Apply basic transformations (drop non-informative columns)
+    2. Rename and transform target column
     3. Store data in database
     """
 
     # Extract
     df = pd.read_csv(DATA_PATH)
 
+    print("Raw data loaded")
+    print("Shape:", df.shape)
+
     # Transform
-    columns_to_drop = [col for col in DROP_COLUMNS if col in df.columns]
-    df = df.drop(columns=columns_to_drop)
+    df = df.rename(columns={RAW_TARGET_COLUMN: TARGET_COLUMN})
+
+    df[TARGET_COLUMN] = df[TARGET_COLUMN].map({-1: 0, 1: 1})
+
+    print("\nTarget distribution after transformation:")
+    print(df[TARGET_COLUMN].value_counts())
 
     # Load
     engine = get_engine()
@@ -27,13 +34,14 @@ def ingest_data() -> pd.DataFrame:
     df.to_sql(
         TABLE_NAME,
         con=engine,
-        if_exists="replace",   #  repeatable pipeline
+        if_exists="replace",
         index=False
     )
 
-    print("Ingestion complete")
+    print("\nIngestion complete")
     print(f"Rows loaded: {len(df)}")
     print(f"Columns stored: {len(df.columns)}")
+    print(f"Table: {TABLE_NAME}")
 
     return df
 
