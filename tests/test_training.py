@@ -1,9 +1,9 @@
 import pandas as pd
 
+from sklearn.linear_model import LogisticRegression
+
 from pipeline.config import TARGET_COLUMN
 from pipeline.training import evaluate_model, get_model_grid, split_data
-
-from sklearn.linear_model import LogisticRegression
 
 
 def test_split_data_separates_features_and_target():
@@ -71,6 +71,8 @@ def test_evaluate_model_returns_expected_metrics():
         "f1_score",
         "roc_auc",
         "pr_auc",
+        "threshold",
+        "threshold_f1",
         "confusion_matrix",
         "classification_report",
     }
@@ -80,4 +82,5 @@ def test_evaluate_model_returns_expected_metrics():
     assert 0 <= metrics["precision"] <= 1
     assert 0 <= metrics["recall"] <= 1
     assert 0 <= metrics["f1_score"] <= 1
+    assert 0 <= metrics["threshold"] <= 1
     assert metrics["confusion_matrix"].shape == (2, 2)
