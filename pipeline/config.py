@@ -23,3 +23,6 @@ FEATURE_IMPORTANCE_PATH = OUTPUT_DIR / "secom_feature_importance.csv"
 MODEL_PATH = MODELS_DIR / "secom_yield_model.joblib"
 
 MLFLOW_EXPERIMENT_NAME = "secom_yield_prediction"
+
+MONITORING_REPORT_PATH = OUTPUT_DIR / "secom_monitoring_report.csv"
+PREDICTION_LOG_PATH = OUTPUT_DIR / "secom_prediction_log.csv"
