@@ -78,6 +78,10 @@ def scale_features(df: pd.DataFrame) -> pd.DataFrame:
     y = df[TARGET_COLUMN]
     X = df.drop(columns=[TARGET_COLUMN])
 
+    if "Time" in X.columns:
+      X = X.drop(columns=["Time"])
+    print("Dropped Time column before scaling")
+
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
