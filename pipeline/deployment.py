@@ -73,7 +73,6 @@ def predict(input_data: PredictionInput):
 
     return response
 
-
 def log_prediction(response: dict) -> None:
     Path(PREDICTION_LOG_PATH).parent.mkdir(parents=True, exist_ok=True)
 
