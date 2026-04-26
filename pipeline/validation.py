@@ -1,25 +1,45 @@
 import pandas as pd
-from pipeline.config import DATA_PATH, TARGET_COLUMN
+
+from pipeline.config import DATA_PATH
+
+
+EXPECTED_TARGET_COLUMN = "Pass/Fail"
 
 
 def validate_data() -> pd.DataFrame:
-    """Validate dataset structure and integrity"""
+    """
+    Validate the raw SECOM dataset before ingestion.
+    """
 
     df = pd.read_csv(DATA_PATH)
 
-    print("Dataset loaded successfully")
+    print("SECOM dataset loaded successfully")
     print("Shape:", df.shape)
 
-    
-    if TARGET_COLUMN not in df.columns:
-        raise ValueError(f"Missing target column: {TARGET_COLUMN}")
+    if EXPECTED_TARGET_COLUMN not in df.columns:
+        raise ValueError(f"Missing target column: {EXPECTED_TARGET_COLUMN}")
 
-    print("\nMissing values:")
-    print(df.isnull().sum())
+    print("\nTarget values:")
+    print(df[EXPECTED_TARGET_COLUMN].value_counts())
 
-    if "fin_width_nm" in df.columns:
-        nulls = df["fin_width_nm"].isnull().sum()
-        print(f"\nfin_width_nm null values: {nulls}")
+    expected_labels = {-1, 1}
+    actual_labels = set(df[EXPECTED_TARGET_COLUMN].dropna().unique())
+
+    if actual_labels != expected_labels:
+        raise ValueError(
+            f"Unexpected target labels found: {actual_labels}. "
+            f"Expected labels: {expected_labels}"
+        )
+
+    missing_values = df.isnull().sum()
+    total_missing = missing_values.sum()
+
+    print("\nTotal missing values:", total_missing)
+    print("\nColumns with highest missing values:")
+    print(missing_values.sort_values(ascending=False).head(10))
+
+    duplicate_rows = df.duplicated().sum()
+    print("\nDuplicate rows:", duplicate_rows)
 
     print("\nValidation complete")
     return df
