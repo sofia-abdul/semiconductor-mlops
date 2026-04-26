@@ -20,3 +20,5 @@ METRICS_PATH = BASE_DIR / "data" / "outputs" / "secom_model_performance_metrics.
 MODEL_PATH = MODELS_DIR / "secom_yield_model.joblib"
 
 MLFLOW_EXPERIMENT_NAME = "secom_yield_prediction"
+
+FEATURE_IMPORTANCE_PATH = BASE_DIR / "data" / "outputs" / "secom_feature_importance.csv"

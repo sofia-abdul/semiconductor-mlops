@@ -10,13 +10,15 @@ from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
+    average_precision_score,
     classification_report,
     confusion_matrix,
     f1_score,
     precision_score,
     recall_score,
+    roc_auc_score,
 )
-from sklearn.model_selection import GridSearchCV, cross_val_score, train_test_split
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_split
 
 try:
     from xgboost import XGBClassifier
@@ -25,6 +27,7 @@ except ImportError:
     XGBOOST_AVAILABLE = False
 
 from pipeline.config import (
+    FEATURE_IMPORTANCE_PATH,
     METRICS_PATH,
     MLFLOW_EXPERIMENT_NAME,
     MODEL_PATH,
@@ -39,7 +42,7 @@ warnings.filterwarnings("ignore")
 
 def load_processed_data() -> pd.DataFrame:
     df = pd.read_csv(PROCESSED_DATA_PATH)
-    print("Loaded processed dataset")
+    print("Loaded processed SECOM dataset")
     print("Shape:", df.shape)
     return df
 
@@ -89,7 +92,7 @@ def get_model_grid() -> dict:
             ),
             "params": {
                 "n_estimators": [100, 200],
-                "max_depth": [None, 10, 20],
+                "max_depth": [5, 10, None],
                 "min_samples_split": [2, 5],
             },
         },
@@ -111,6 +114,7 @@ def get_model_grid() -> dict:
                 eval_metric="logloss",
                 random_state=RANDOM_STATE,
                 n_jobs=-1,
+                scale_pos_weight=14,
             ),
             "params": {
                 "n_estimators": [100, 200],
@@ -123,14 +127,34 @@ def get_model_grid() -> dict:
     return model_grid
 
 
+def get_positive_class_scores(model, X_test):
+    if hasattr(model, "predict_proba"):
+        return model.predict_proba(X_test)[:, 1]
+
+    if hasattr(model, "decision_function"):
+        return model.decision_function(X_test)
+
+    return None
+
+
 def evaluate_model(model, X_test, y_test) -> dict:
     predictions = model.predict(X_test)
+    scores = get_positive_class_scores(model, X_test)
+
+    roc_auc = None
+    pr_auc = None
+
+    if scores is not None:
+        roc_auc = roc_auc_score(y_test, scores)
+        pr_auc = average_precision_score(y_test, scores)
 
     return {
         "accuracy": accuracy_score(y_test, predictions),
         "precision": precision_score(y_test, predictions, zero_division=0),
         "recall": recall_score(y_test, predictions, zero_division=0),
         "f1_score": f1_score(y_test, predictions, zero_division=0),
+        "roc_auc": roc_auc,
+        "pr_auc": pr_auc,
         "confusion_matrix": confusion_matrix(y_test, predictions),
         "classification_report": classification_report(
             y_test,
@@ -140,12 +164,37 @@ def evaluate_model(model, X_test, y_test) -> dict:
     }
 
 
+def save_feature_importance(model, feature_names):
+    if not hasattr(model, "feature_importances_"):
+        print("\nSelected model does not provide feature importances.")
+        return
+
+    importance_df = pd.DataFrame(
+        {
+            "feature": feature_names,
+            "importance": model.feature_importances_,
+        }
+    ).sort_values(by="importance", ascending=False)
+
+    Path(FEATURE_IMPORTANCE_PATH).parent.mkdir(parents=True, exist_ok=True)
+    importance_df.to_csv(FEATURE_IMPORTANCE_PATH, index=False)
+
+    print("\nTop 10 important features:")
+    print(importance_df.head(10))
+    print(f"Feature importance saved to: {FEATURE_IMPORTANCE_PATH}")
+
+
 def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
     mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
 
     model_grid = get_model_grid()
-    results = []
+    cv_strategy = StratifiedKFold(
+        n_splits=5,
+        shuffle=True,
+        random_state=RANDOM_STATE,
+    )
 
+    results = []
     selected_model = None
     selected_model_name = None
     selected_f1 = -1
@@ -157,23 +206,13 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
             estimator=config["model"],
             param_grid=config["params"],
             scoring="f1",
-            cv=5,
+            cv=cv_strategy,
             n_jobs=-1,
         )
 
         with mlflow.start_run(run_name=model_name):
             grid_search.fit(X_train, y_train)
-
             tuned_model = grid_search.best_estimator_
-
-            cv_scores = cross_val_score(
-                tuned_model,
-                X_train,
-                y_train,
-                cv=5,
-                scoring="f1",
-                n_jobs=-1,
-            )
 
             metrics = evaluate_model(tuned_model, X_test, y_test)
 
@@ -182,22 +221,32 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
             mlflow.log_param("random_state", RANDOM_STATE)
             mlflow.log_params(grid_search.best_params_)
 
-            mlflow.log_metric("cv_f1_mean", cv_scores.mean())
-            mlflow.log_metric("cv_f1_std", cv_scores.std())
+            mlflow.log_metric("cv_f1_mean", grid_search.best_score_)
             mlflow.log_metric("accuracy", metrics["accuracy"])
             mlflow.log_metric("precision", metrics["precision"])
             mlflow.log_metric("recall", metrics["recall"])
             mlflow.log_metric("f1_score", metrics["f1_score"])
 
+            if metrics["roc_auc"] is not None:
+                mlflow.log_metric("roc_auc", metrics["roc_auc"])
+
+            if metrics["pr_auc"] is not None:
+                mlflow.log_metric("pr_auc", metrics["pr_auc"])
+
             mlflow.sklearn.log_model(tuned_model, artifact_path="model")
 
             print("Best parameters:", grid_search.best_params_)
-            print("Cross-validation F1 mean:", round(cv_scores.mean(), 4))
-            print("Cross-validation F1 std:", round(cv_scores.std(), 4))
+            print("Cross-validation F1:", round(grid_search.best_score_, 4))
             print("Test accuracy:", round(metrics["accuracy"], 4))
             print("Test precision:", round(metrics["precision"], 4))
             print("Test recall:", round(metrics["recall"], 4))
             print("Test F1-score:", round(metrics["f1_score"], 4))
+
+            if metrics["roc_auc"] is not None:
+                print("ROC-AUC:", round(metrics["roc_auc"], 4))
+
+            if metrics["pr_auc"] is not None:
+                print("PR-AUC:", round(metrics["pr_auc"], 4))
 
             print("\nConfusion Matrix:")
             print(metrics["confusion_matrix"])
@@ -209,12 +258,13 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
                 {
                     "model": model_name,
                     "best_params": grid_search.best_params_,
-                    "cv_f1_mean": cv_scores.mean(),
-                    "cv_f1_std": cv_scores.std(),
+                    "cv_f1_mean": grid_search.best_score_,
                     "accuracy": metrics["accuracy"],
                     "precision": metrics["precision"],
                     "recall": metrics["recall"],
                     "f1_score": metrics["f1_score"],
+                    "roc_auc": metrics["roc_auc"],
+                    "pr_auc": metrics["pr_auc"],
                 }
             )
 
@@ -234,8 +284,23 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
     joblib.dump(selected_model, MODEL_PATH)
     results_df.to_csv(METRICS_PATH, index=False)
 
+    save_feature_importance(selected_model, X_train.columns)
+
     print("\nModel comparison:")
-    print(results_df[["model", "cv_f1_mean", "accuracy", "precision", "recall", "f1_score"]])
+    print(
+        results_df[
+            [
+                "model",
+                "cv_f1_mean",
+                "accuracy",
+                "precision",
+                "recall",
+                "f1_score",
+                "roc_auc",
+                "pr_auc",
+            ]
+        ]
+    )
 
     print(f"\nSelected model: {selected_model_name}")
     print(f"Selected F1-score: {selected_f1:.4f}")
@@ -249,6 +314,7 @@ def train_pipeline() -> pd.DataFrame:
     df = load_processed_data()
     X_train, X_test, y_train, y_test = split_data(df)
     results = train_models(X_train, X_test, y_train, y_test)
+
     return results
 
 
