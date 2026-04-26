@@ -16,9 +16,10 @@ RANDOM_STATE = 42
 TEST_SIZE = 0.25
 
 MODELS_DIR = BASE_DIR / "models"
-METRICS_PATH = BASE_DIR / "data" / "outputs" / "secom_model_performance_metrics.csv"
+OUTPUT_DIR = BASE_DIR / "data" / "outputs"
+
+METRICS_PATH = OUTPUT_DIR / "secom_model_performance_metrics.csv"
+FEATURE_IMPORTANCE_PATH = OUTPUT_DIR / "secom_feature_importance.csv"
 MODEL_PATH = MODELS_DIR / "secom_yield_model.joblib"
 
 MLFLOW_EXPERIMENT_NAME = "secom_yield_prediction"
-
-FEATURE_IMPORTANCE_PATH = BASE_DIR / "data" / "outputs" / "secom_feature_importance.csv"

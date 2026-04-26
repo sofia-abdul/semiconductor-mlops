@@ -14,6 +14,7 @@ from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     f1_score,
+    precision_recall_curve,
     precision_score,
     recall_score,
     roc_auc_score,
@@ -22,6 +23,7 @@ from sklearn.model_selection import GridSearchCV, StratifiedKFold, train_test_sp
 
 try:
     from xgboost import XGBClassifier
+
     XGBOOST_AVAILABLE = True
 except ImportError:
     XGBOOST_AVAILABLE = False
@@ -137,9 +139,34 @@ def get_positive_class_scores(model, X_test):
     return None
 
 
+def find_best_threshold(y_true, scores):
+    precision, recall, thresholds = precision_recall_curve(y_true, scores)
+
+    f1_scores = (2 * precision * recall) / (precision + recall + 1e-8)
+
+    best_index = f1_scores.argmax()
+
+    if best_index == 0:
+        best_threshold = thresholds[0]
+    elif best_index >= len(thresholds):
+        best_threshold = thresholds[-1]
+    else:
+        best_threshold = thresholds[best_index - 1]
+
+    return best_threshold, f1_scores[best_index]
+
+
 def evaluate_model(model, X_test, y_test) -> dict:
-    predictions = model.predict(X_test)
     scores = get_positive_class_scores(model, X_test)
+
+    threshold = 0.5
+    threshold_f1 = None
+
+    if scores is not None:
+        threshold, threshold_f1 = find_best_threshold(y_test, scores)
+        predictions = (scores >= threshold).astype(int)
+    else:
+        predictions = model.predict(X_test)
 
     roc_auc = None
     pr_auc = None
@@ -155,6 +182,8 @@ def evaluate_model(model, X_test, y_test) -> dict:
         "f1_score": f1_score(y_test, predictions, zero_division=0),
         "roc_auc": roc_auc,
         "pr_auc": pr_auc,
+        "threshold": threshold,
+        "threshold_f1": threshold_f1,
         "confusion_matrix": confusion_matrix(y_test, predictions),
         "classification_report": classification_report(
             y_test,
@@ -165,18 +194,27 @@ def evaluate_model(model, X_test, y_test) -> dict:
 
 
 def save_feature_importance(model, feature_names):
-    if not hasattr(model, "feature_importances_"):
-        print("\nSelected model does not provide feature importances.")
+    Path(FEATURE_IMPORTANCE_PATH).parent.mkdir(parents=True, exist_ok=True)
+
+    if hasattr(model, "feature_importances_"):
+        importance_values = model.feature_importances_
+        importance_type = "feature_importance"
+
+    elif hasattr(model, "coef_"):
+        importance_values = abs(model.coef_[0])
+        importance_type = "coefficient_importance"
+
+    else:
+        print("\nSelected model does not provide feature importance or coefficients.")
         return
 
     importance_df = pd.DataFrame(
         {
             "feature": feature_names,
-            "importance": model.feature_importances_,
+            importance_type: importance_values,
         }
-    ).sort_values(by="importance", ascending=False)
+    ).sort_values(by=importance_type, ascending=False)
 
-    Path(FEATURE_IMPORTANCE_PATH).parent.mkdir(parents=True, exist_ok=True)
     importance_df.to_csv(FEATURE_IMPORTANCE_PATH, index=False)
 
     print("\nTop 10 important features:")
@@ -198,6 +236,7 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
     selected_model = None
     selected_model_name = None
     selected_f1 = -1
+    selected_threshold = 0.5
 
     for model_name, config in model_grid.items():
         print(f"\nTraining model: {model_name}")
@@ -219,6 +258,7 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
             mlflow.log_param("model_name", model_name)
             mlflow.log_param("test_size", TEST_SIZE)
             mlflow.log_param("random_state", RANDOM_STATE)
+            mlflow.log_param("threshold", metrics["threshold"])
             mlflow.log_params(grid_search.best_params_)
 
             mlflow.log_metric("cv_f1_mean", grid_search.best_score_)
@@ -233,10 +273,14 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
             if metrics["pr_auc"] is not None:
                 mlflow.log_metric("pr_auc", metrics["pr_auc"])
 
+            if metrics["threshold_f1"] is not None:
+                mlflow.log_metric("threshold_f1", metrics["threshold_f1"])
+
             mlflow.sklearn.log_model(tuned_model, artifact_path="model")
 
             print("Best parameters:", grid_search.best_params_)
             print("Cross-validation F1:", round(grid_search.best_score_, 4))
+            print("Optimal threshold:", round(metrics["threshold"], 4))
             print("Test accuracy:", round(metrics["accuracy"], 4))
             print("Test precision:", round(metrics["precision"], 4))
             print("Test recall:", round(metrics["recall"], 4))
@@ -259,6 +303,7 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
                     "model": model_name,
                     "best_params": grid_search.best_params_,
                     "cv_f1_mean": grid_search.best_score_,
+                    "threshold": metrics["threshold"],
                     "accuracy": metrics["accuracy"],
                     "precision": metrics["precision"],
                     "recall": metrics["recall"],
@@ -272,6 +317,7 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
                 selected_f1 = metrics["f1_score"]
                 selected_model = tuned_model
                 selected_model_name = model_name
+                selected_threshold = metrics["threshold"]
 
     results_df = pd.DataFrame(results).sort_values(
         by="f1_score",
@@ -281,7 +327,15 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
     Path(MODEL_PATH).parent.mkdir(parents=True, exist_ok=True)
     Path(METRICS_PATH).parent.mkdir(parents=True, exist_ok=True)
 
-    joblib.dump(selected_model, MODEL_PATH)
+    joblib.dump(
+        {
+            "model": selected_model,
+            "threshold": selected_threshold,
+            "target_column": TARGET_COLUMN,
+        },
+        MODEL_PATH,
+    )
+
     results_df.to_csv(METRICS_PATH, index=False)
 
     save_feature_importance(selected_model, X_train.columns)
@@ -292,6 +346,7 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
             [
                 "model",
                 "cv_f1_mean",
+                "threshold",
                 "accuracy",
                 "precision",
                 "recall",
@@ -303,6 +358,7 @@ def train_models(X_train, X_test, y_train, y_test) -> pd.DataFrame:
     )
 
     print(f"\nSelected model: {selected_model_name}")
+    print(f"Selected threshold: {selected_threshold:.4f}")
     print(f"Selected F1-score: {selected_f1:.4f}")
     print(f"Model saved to: {MODEL_PATH}")
     print(f"Metrics saved to: {METRICS_PATH}")
