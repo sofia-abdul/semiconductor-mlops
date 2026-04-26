@@ -6,23 +6,22 @@ from pipeline.db import get_engine
 
 def ingest_data() -> pd.DataFrame:
     """
-    Ingest SECOM dataset into MariaDB.
+    Ingest the SECOM dataset into MariaDB.
 
     Steps:
-    1. Load raw CSV
-    2. Rename and transform target column
-    3. Store data in database
+    1. Load raw CSV file.
+    2. Rename and transform the target column.
+    3. Store the dataset in MariaDB.
     """
 
     # Extract
     df = pd.read_csv(DATA_PATH)
 
-    print("Raw data loaded")
+    print("Raw SECOM data loaded")
     print("Shape:", df.shape)
 
     # Transform
     df = df.rename(columns={RAW_TARGET_COLUMN: TARGET_COLUMN})
-
     df[TARGET_COLUMN] = df[TARGET_COLUMN].map({-1: 0, 1: 1})
 
     print("\nTarget distribution after transformation:")
@@ -35,7 +34,7 @@ def ingest_data() -> pd.DataFrame:
         TABLE_NAME,
         con=engine,
         if_exists="replace",
-        index=False
+        index=False,
     )
 
     print("\nIngestion complete")
