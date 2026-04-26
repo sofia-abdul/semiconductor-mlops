@@ -1,9 +1,6 @@
-data/raw/*.csv
-data/processed/*.csv
-data/outputs/*.csv
-
-models/*.pkl
-
+data/processed/
+data/outputs/
+models/
 mlruns/
 
 __pycache__/
