@@ -1,3 +1,4 @@
+data/raw
 data/processed/
 data/outputs/
 models/
@@ -5,4 +6,6 @@ mlruns/
 
 __pycache__/
 *.pyc
-.env
+
+.git/
+.gitignore
